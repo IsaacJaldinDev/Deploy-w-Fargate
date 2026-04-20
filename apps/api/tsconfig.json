@@ -1,0 +1,49 @@
+{
+  "compilerOptions": {
+    // Compile to ES2020 — supports async/await, optional chaining, nullish coalescing
+    "target": "ES2020",
+
+    // CommonJS modules — required for sequelize-typescript decorator compatibility
+    // ESM + decorators + reflect-metadata has known interop issues
+    "module": "commonjs",
+
+    // Standard ES2020 library — includes Promise, Map, Set, etc.
+    "lib": ["ES2020"],
+
+    // Output compiled JS to the dist/ directory
+    "outDir": "./dist",
+
+    // All source TypeScript files live in src/
+    "rootDir": "./src",
+
+    // Strict type checking — catches most common bugs at compile time
+    "strict": true,
+
+    // REQUIRED for sequelize-typescript decorators (@Table, @Column, @Model)
+    // Without this, decorator syntax is a compile error
+    "experimentalDecorators": true,
+
+    // REQUIRED for sequelize-typescript — emits type metadata at runtime
+    // sequelize-typescript reads this metadata to infer column types from
+    // TypeScript types (e.g., string → VARCHAR, number → INTEGER)
+    // Without this, all columns silently become STRING — a very hard bug to find
+    "emitDecoratorMetadata": true,
+
+    // Allow model class properties without initializers in constructors
+    // Sequelize initializes model properties via its own mechanism, not TypeScript
+    // constructors. With strictPropertyInitialization: true, every model
+    // property (id!, title!, etc.) would require a constructor assignment.
+    "strictPropertyInitialization": false,
+
+    // Allow default imports from CommonJS modules (e.g., import express from 'express')
+    "esModuleInterop": true,
+
+    // Skip type checking of declaration files in node_modules — faster builds
+    "skipLibCheck": true,
+
+    // Allow importing .json files as TypeScript modules
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,17 @@
+# Exclude node_modules — Docker installs dependencies inside the image
+# Including it would bloat the build context and override the in-image install
+node_modules
+
+# Exclude compiled output — the Dockerfile compiles from source
+dist
+
+# Never bake secrets into a Docker image
+.env
+.env.*
+# But keep the example file — it's documentation, not secrets
+!.env.example
+
+# Not needed inside the image
+*.md
+.git
+coverage
