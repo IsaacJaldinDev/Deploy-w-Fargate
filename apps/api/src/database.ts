@@ -15,6 +15,15 @@ export const sequelize = new Sequelize({
   // Register all models here — add new models to this array as the app grows
   models: [Note],
 
+  // RDS requires SSL — without this you get "no pg_hba.conf entry... no encryption"
+  // rejectUnauthorized: false accepts the RDS self-signed certificate
+  dialectOptions: process.env.NODE_ENV === 'production' ? {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false,
+    },
+  } : {},
+
   // Log SQL queries in development (helpful for learning/debugging)
   // Disabled in production to avoid flooding CloudWatch Logs with SELECT statements
   logging: process.env.NODE_ENV === 'development' ? console.log : false,

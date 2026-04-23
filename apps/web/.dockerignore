@@ -1,0 +1,20 @@
+# Exclude node_modules — Docker installs dependencies inside the image
+# Including it would make the build context huge and potentially use wrong versions
+node_modules
+
+# Exclude compiled output — the Dockerfile compiles fresh from source
+dist
+
+# Exclude Angular's local build cache — large and not needed in Docker
+# This can be hundreds of MB on a machine with many builds
+.angular
+
+# Not needed inside the image
+*.md
+.git
+e2e
+coverage
+
+# Environment files (secrets) — never bake into an image
+.env
+.env.*

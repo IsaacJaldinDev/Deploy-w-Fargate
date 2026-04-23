@@ -1,0 +1,48 @@
+<h2 mat-dialog-title class="dialog-title">
+  {{ isEditing ? 'Edit Note' : 'New Note' }}
+</h2>
+
+<mat-dialog-content class="dialog-content">
+  <form [formGroup]="form" (ngSubmit)="save()">
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Title</mat-label>
+      <input
+        matInput
+        formControlName="title"
+        placeholder="What's this note about?"
+        autocomplete="off"
+        cdkFocusInitial>
+      <mat-error *ngIf="form.get('title')?.hasError('required')">
+        Title is required
+      </mat-error>
+      <mat-error *ngIf="form.get('title')?.hasError('maxlength')">
+        Title must be 120 characters or less
+      </mat-error>
+    </mat-form-field>
+
+    <mat-form-field appearance="outline" class="full-width">
+      <mat-label>Description</mat-label>
+      <textarea
+        matInput
+        formControlName="description"
+        placeholder="Add some details..."
+        rows="5"
+        cdkTextareaAutosize
+        cdkAutosizeMinRows="4"
+        cdkAutosizeMaxRows="10">
+      </textarea>
+      <mat-error *ngIf="form.get('description')?.hasError('required')">
+        Description is required
+      </mat-error>
+    </mat-form-field>
+
+  </form>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end" class="dialog-actions">
+  <button mat-button (click)="cancel()" class="cancel-btn">Cancel</button>
+  <button mat-raised-button color="primary" (click)="save()" class="save-btn">
+    {{ isEditing ? 'Save Changes' : 'Create Note' }}
+  </button>
+</mat-dialog-actions>

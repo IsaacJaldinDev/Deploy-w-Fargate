@@ -1,0 +1,62 @@
+// Global styles — loaded by Angular via angular.json "styles" array
+// Angular Material's prebuilt theme (indigo-pink) is also loaded there
+
+// CSS custom properties for the color scheme
+// Deep indigo primary, teal accent — modern and distinctive
+:root {
+  --color-bg: #f0f2f5;
+  --color-surface: #ffffff;
+  --color-primary: #3949ab;   // indigo-700
+  --color-accent: #00bcd4;    // cyan-500
+  --color-text-primary: #1a1a2e;
+  --color-text-secondary: #666680;
+  --color-border: #e0e0ef;
+  --shadow-card: 0 2px 8px rgba(57, 73, 171, 0.08), 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-card-hover: 0 8px 24px rgba(57, 73, 171, 0.15), 0 2px 8px rgba(0,0,0,0.08);
+  --radius-card: 12px;
+}
+
+// Box sizing reset
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+// Base body styles
+body {
+  margin: 0;
+  font-family: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+// Override Angular Material toolbar to use our color
+.mat-toolbar.mat-primary {
+  background: linear-gradient(135deg, #3949ab 0%, #283593 100%);
+}
+
+// Global link styles
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+// Utility: visually hidden (accessibility)
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

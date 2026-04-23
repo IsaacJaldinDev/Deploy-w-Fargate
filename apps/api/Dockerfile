@@ -8,7 +8,7 @@
 # never contains the TypeScript compiler, source maps, or devDependencies.
 # This is the "multi-stage build" pattern — smaller, more secure images.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM --platform=linux/amd64 node:20-alpine AS builder
 
 # Set the working directory inside the container.
 # All subsequent COPY, RUN, and CMD commands are relative to this path.
@@ -49,7 +49,7 @@ RUN npm run build
 # Result: a ~120MB image instead of ~400MB.
 # No TypeScript source code, no compiler, no devDependencies in the final image.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS production
+FROM --platform=linux/amd64 node:20-alpine AS production
 
 WORKDIR /app
 

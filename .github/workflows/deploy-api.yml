@@ -1,0 +1,151 @@
+name: Deploy API to ECS
+
+# ─────────────────────────────────────────────────────────────────────────────
+# This workflow triggers ONLY when files under apps/api/ change on the main
+# branch. This is the monorepo path filter — the web service has its own
+# separate workflow (deploy-web.yml). This prevents unnecessary deploys:
+# changing the frontend doesn't trigger an API rebuild, and vice versa.
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/api/**'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UPDATE THESE VALUES to match your AWS setup before running the pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+env:
+  AWS_REGION: us-east-2                    # AWS region where all resources live
+  ECR_REPOSITORY: deploy-w-fargate/api     # ECR repo name
+  ECS_CLUSTER: deploy-w-fargate            # ECS cluster name
+  ECS_SERVICE: api-service                 # ECS service name
+  TASK_DEFINITION: api-td                  # ECS task definition family name
+  CONTAINER_NAME: api                      # Container name inside the task definition
+
+jobs:
+  deploy:
+    name: Build and Deploy API
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Step 1: Checkout ────────────────────────────────────────────────────
+      # Downloads the repository code onto the GitHub Actions runner VM.
+      # Without this, the runner has an empty workspace.
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # ── Step 2: Configure AWS credentials ───────────────────────────────────
+      # Reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from GitHub Secrets
+      # (Settings → Secrets and variables → Actions) and configures the AWS CLI
+      # and SDK on the runner. All subsequent AWS commands use these credentials.
+      #
+      # Minimum IAM permissions required for this user:
+      #   ecr:GetAuthorizationToken
+      #   ecr:BatchCheckLayerAvailability
+      #   ecr:InitiateLayerUpload / UploadLayerPart / CompleteLayerUpload
+      #   ecr:PutImage
+      #   ecs:RegisterTaskDefinition
+      #   ecs:DescribeTaskDefinition
+      #   ecs:UpdateService
+      #   ecs:DescribeServices
+      #   iam:PassRole (scoped to ecsTaskExecutionRole)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── Step 3: Log in to ECR ────────────────────────────────────────────────
+      # Gets a temporary Docker login token from ECR (valid for 12 hours) and
+      # runs `docker login` so subsequent docker push commands are authenticated.
+      # The `registry` output contains the ECR base URL we use in Step 4.
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── Step 4: Build, tag, and push Docker image ────────────────────────────
+      # Builds the API Docker image (multi-stage TypeScript → Node.js build).
+      #
+      # We pass GIT_COMMIT_SHA as a build argument so the /version endpoint
+      # in the API returns the exact commit that was deployed. This is the
+      # "proof" that CI/CD worked — students hit /version and see the SHA change.
+      #
+      # We tag with two tags:
+      #   - :${{ github.sha }}  — unique, immutable tag for this exact deploy
+      #   - :latest             — always points to the most recent build
+      #
+      # We use the SHA tag in the task definition (for traceability and rollback),
+      # not :latest. :latest is just a convenience alias.
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build the image, passing the git SHA as a build argument
+          docker build \
+            --build-arg GIT_COMMIT_SHA=${{ github.sha }} \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            ./apps/api
+
+          # Push both tags to ECR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Export the full image URI for the next step
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # ── Step 5: Download the current task definition ─────────────────────────
+      # We download the CURRENTLY DEPLOYED task definition from ECS and update
+      # only the image URI. This is the correct pattern because:
+      #   - It preserves all other settings: CPU, memory, env vars, IAM roles, etc.
+      #   - We don't need to maintain a separate task-def JSON file in the repo
+      #   - Any manual changes made in the AWS Console are respected
+      #
+      # --query taskDefinition strips the outer response wrapper. Without this,
+      # the JSON includes extra fields (status, registeredAt, etc.) that cause
+      # RegisterTaskDefinition to reject it with a validation error.
+      - name: Download current ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.TASK_DEFINITION }} \
+            --query taskDefinition \
+            > task-definition.json
+
+      # ── Step 6: Update the container image in the task definition ────────────
+      # Replaces the image URI in the downloaded task definition JSON with the
+      # new image we just built. Uses the official AWS action so we don't have
+      # to write fragile jq expressions.
+      - name: Inject new image into task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      # ── Step 7: Register and deploy ──────────────────────────────────────────
+      # Registers the updated JSON as a new task definition revision (ECS keeps
+      # a version history — you can roll back to any previous revision).
+      # Then updates the ECS Service to use the new revision, triggering a
+      # rolling deployment:
+      #   1. ECS starts new tasks with the new image
+      #   2. ALB registers the new tasks and routes traffic to them
+      #   3. Once new tasks pass health checks, ECS stops old tasks
+      #   4. Zero downtime throughout
+      #
+      # wait-for-service-stability: true — the workflow BLOCKS until ECS confirms
+      # all new tasks are healthy. If a task crashes (bad env var, DB unreachable,
+      # code error), the pipeline fails with a clear error. This is the desired
+      # behavior — a broken deploy should fail loudly, not silently succeed.
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

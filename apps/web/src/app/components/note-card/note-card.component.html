@@ -1,0 +1,31 @@
+<mat-card class="note-card" [@cardAnimation]>
+  <mat-card-header>
+    <mat-card-title class="note-title">{{ note.title }}</mat-card-title>
+    <mat-card-subtitle class="note-date">
+      {{ note.createdAt | date:'MMM d, y' }}
+    </mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content>
+    <p class="note-description">{{ note.description }}</p>
+  </mat-card-content>
+
+  <mat-card-actions align="end">
+    <button
+      mat-icon-button
+      class="action-btn edit-btn"
+      (click)="onEdit()"
+      matTooltip="Edit note"
+      aria-label="Edit note">
+      <mat-icon>edit</mat-icon>
+    </button>
+    <button
+      mat-icon-button
+      class="action-btn delete-btn"
+      (click)="onDelete()"
+      matTooltip="Delete note"
+      aria-label="Delete note">
+      <mat-icon>delete_outline</mat-icon>
+    </button>
+  </mat-card-actions>
+</mat-card>

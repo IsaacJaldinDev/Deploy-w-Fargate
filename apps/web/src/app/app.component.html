@@ -1,0 +1,49 @@
+<!-- ── Toolbar ─────────────────────────────────────────────────────────────── -->
+<mat-toolbar color="primary" class="app-toolbar">
+  <div class="toolbar-content">
+    <div class="toolbar-brand">
+      <mat-icon class="brand-icon">sticky_note_2</mat-icon>
+      <span class="brand-name">Notes Board 🚀</span>
+    </div>
+    <button
+      mat-raised-button
+      class="new-note-btn"
+      (click)="openCreateDialog()"
+      aria-label="Create new note">
+      <mat-icon>add</mat-icon>
+      New Note
+    </button>
+  </div>
+</mat-toolbar>
+
+<!-- ── Main content ──────────────────────────────────────────────────────── -->
+<main class="board">
+
+  <!-- Loading spinner -->
+  <div *ngIf="loading" class="loading-state">
+    <mat-spinner diameter="48" color="primary"></mat-spinner>
+    <p>Loading your notes...</p>
+  </div>
+
+  <!-- Empty state -->
+  <div *ngIf="!loading && notes.length === 0" class="empty-state">
+    <div class="empty-icon">📝</div>
+    <h2 class="empty-title">No notes yet</h2>
+    <p class="empty-subtitle">Create your first note to get started.</p>
+    <button mat-raised-button color="primary" (click)="openCreateDialog()">
+      <mat-icon>add</mat-icon>
+      Create a Note
+    </button>
+  </div>
+
+  <!-- Notes grid -->
+  <div *ngIf="!loading && notes.length > 0" class="notes-grid">
+    <app-note-card
+      *ngFor="let note of notes; trackBy: trackById"
+      [note]="note"
+      (editNote)="openEditDialog($event)"
+      (deleteNote)="deleteNote($event)">
+    </app-note-card>
+  </div>
+
+</main>

@@ -1,0 +1,124 @@
+name: Deploy Web to ECS
+
+# ─────────────────────────────────────────────────────────────────────────────
+# This workflow triggers ONLY when files under apps/web/ change on the main
+# branch. The API has its own separate workflow (deploy-api.yml).
+# Changing apps/api/ does NOT trigger this workflow, and vice versa.
+# ─────────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/web/**'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UPDATE THESE VALUES to match your AWS setup before running the pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+env:
+  AWS_REGION: us-east-2                    # AWS region where all resources live
+  ECR_REPOSITORY: deploy-w-fargate/web     # ECR repo name
+  ECS_CLUSTER: deploy-w-fargate            # ECS cluster name
+  ECS_SERVICE: web-service                 # ECS service name
+  TASK_DEFINITION: web-td                  # ECS task definition family name
+  CONTAINER_NAME: web                      # Container name inside the task definition
+
+jobs:
+  deploy:
+    name: Build and Deploy Web
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── Step 1: Checkout ────────────────────────────────────────────────────
+      # Downloads the repository code onto the GitHub Actions runner VM.
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # ── Step 2: Configure AWS credentials ───────────────────────────────────
+      # Reads AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from GitHub Secrets.
+      # Same IAM user and permissions as the API workflow.
+      #
+      # Required GitHub Secrets (shared with deploy-api.yml):
+      #   AWS_ACCESS_KEY_ID      — IAM user access key
+      #   AWS_SECRET_ACCESS_KEY  — IAM user secret key
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── Step 3: Log in to ECR ────────────────────────────────────────────────
+      # Gets a temporary Docker login token from ECR so we can push images.
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── Step 4: Build, tag, and push Docker image ────────────────────────────
+      # Builds the web Docker image (multi-stage Angular build → Nginx image).
+      #
+      # The Angular build runs `ng build --configuration=production` inside the
+      # Dockerfile, which:
+      #   1. Replaces environment.ts with environment.prod.ts
+      #   2. Compiles with AOT (Ahead-of-Time) compilation
+      #   3. Tree-shakes and minifies the bundle
+      #   4. Adds content hash to filenames (e.g., main.a3f8b9.js)
+      #
+      # The final Nginx image serves the compiled static assets and handles
+      # Angular's client-side routing (try_files → index.html).
+      #
+      # IMPORTANT: Update apps/web/src/environments/environment.prod.ts
+      # with your actual API ALB DNS name before your first deploy.
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build the Nginx image containing the compiled Angular app
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            ./apps/web
+
+          # Push both tags to ECR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Export the full image URI for the task definition update
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # ── Step 5: Download the current task definition ─────────────────────────
+      # Download the existing web task definition from ECS and update only the
+      # image URI. Preserves all other task definition settings.
+      - name: Download current ECS task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.TASK_DEFINITION }} \
+            --query taskDefinition \
+            > task-definition.json
+
+      # ── Step 6: Update the container image in the task definition ────────────
+      # Injects the new ECR image URI into the task definition JSON.
+      - name: Inject new image into task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      # ── Step 7: Register and deploy ──────────────────────────────────────────
+      # Registers the new task definition revision and updates the ECS Service,
+      # triggering a rolling deployment with zero downtime.
+      #
+      # wait-for-service-stability: true — the workflow blocks until ECS confirms
+      # the new Nginx container is healthy (ALB health check passes on /).
+      # If the container crashes or health checks fail, this step fails loudly.
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

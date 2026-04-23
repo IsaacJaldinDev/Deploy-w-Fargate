@@ -1,0 +1,96 @@
+version: '3.9'
+
+# This docker-compose.yml spins up the complete stack locally:
+#   - postgres: the database
+#   - api:      the Node.js REST API
+#   - web:      the Angular app served by Nginx
+#
+# Usage:
+#   docker compose up --build    # first run (builds images)
+#   docker compose up            # subsequent runs (uses cached images)
+#   docker compose down          # stop all containers (data preserved)
+#   docker compose down -v       # stop all containers AND delete the database volume
+
+services:
+
+  # ─────────────────────────────────────────────────────────────
+  # PostgreSQL database
+  # Uses the official postgres image with Alpine Linux (smaller)
+  # ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: notes_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      # Expose 5432 so you can connect with a local GUI like TablePlus or DBeaver
+      - "5432:5432"
+    volumes:
+      # Named volume: data persists across docker compose down / up cycles
+      # Without this, you'd lose all notes every time you restart
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready checks if PostgreSQL is accepting connections
+      # The API's depends_on waits for this check to pass before starting
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────────────────────
+  # Node.js REST API
+  # Built from apps/api/Dockerfile (multi-stage TypeScript build)
+  # ─────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    ports:
+      # API available at http://localhost:3000 for direct testing (curl, Postman)
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      # DB_HOST uses the service name "postgres" — Docker Compose creates an
+      # internal network where services resolve each other by service name
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: notes_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      # CORS_ORIGIN tells the API which frontend origin is allowed to call it
+      # In production this would be your ALB DNS name
+      CORS_ORIGIN: http://localhost
+      # GIT_COMMIT_SHA is injected by the CI/CD pipeline in production
+      # Locally we set a descriptive placeholder
+      GIT_COMMIT_SHA: local-compose
+    depends_on:
+      postgres:
+        # Wait for postgres to be healthy before starting the API
+        # Without this, Sequelize throws ECONNREFUSED on startup
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────────────────────
+  # Angular frontend served by Nginx
+  # Built from apps/web/Dockerfile (multi-stage Angular + Nginx build)
+  # ─────────────────────────────────────────────────────────────
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        # Use development config so environment.ts (localhost:3000) is used
+        # instead of environment.prod.ts (the AWS ALB URL).
+        # The CI/CD pipeline builds without this arg, defaulting to production.
+        BUILD_CONFIGURATION: development
+    ports:
+      # Angular app available at http://localhost
+      - "80:80"
+    depends_on:
+      - api
+
+# Named volumes survive docker compose down
+# docker compose down -v removes them (use when you want a clean slate)
+volumes:
+  postgres_data:
